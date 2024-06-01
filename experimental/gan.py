@@ -306,7 +306,7 @@ for i in range(100):
 # %%
 
 
-
+plt.imshow
 
 
 
