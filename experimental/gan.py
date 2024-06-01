@@ -174,7 +174,7 @@ class TwoDomainDataset:
 
   def _sample(self):
     batch = []
-    for i in range(self._batch_size):
+    for _ in range(self._batch_size):
       data = self._sample_one()
       batch.append(data)
     return {k: np.stack([batch[i][k] for i in range(self._batch_size)], 0) for k in batch[0].keys()}
@@ -222,7 +222,8 @@ class CycleGAN(nj.Module):
     return result
 
   def loss(self, data: dict) -> tuple:
-    real_A, real_B = data['A'], data['B']
+    real_A = data['A']
+    real_B = data['B']
     B, H, W, C = real_A.shape
     valid = jnp.ones((B, *self._dis_out, 1))
     fake = jnp.zeros((B, *self._dis_out, 1))
@@ -295,18 +296,52 @@ def transform(data):
 dataset = iter(embodied.Prefetch(dataloader.dataset, transform))
 params = nj.init(trainer.train)({}, next(dataset), seed=np.random.randint(0, 2**16))
 train = jax.jit(nj.pure(trainer.train))
+losses = []
 
 # %%
 
-for i in range(100):
+for i in range(1000):
   params, (outs, mets) = train(params, next(dataset), seed=np.random.randint(0, 2**16))
+  loss = mets['opt_loss']
+  losses.append(loss)
   if i % 100 == 0:
-    print(f"[Step {i+1}] loss: {mets['opt_loss']}")
+    print(f"[Step {i+1}] loss: {loss}")
+
+plt.plot(losses)
+
 
 # %%
 
+untransform = lambda x: x / 2 + 0.5
 
-plt.imshow
+i = 0
+fig = plt.figure(figsize=(10, 10))
+plt.subplot(2, 2, 1)
+plt.imshow(untransform(outs["real_A"][i]))
+plt.subplot(2, 2, 2)
+plt.imshow(untransform(outs["fake_B"][i]))
+plt.subplot(2, 2, 3)
+plt.imshow(untransform(outs["real_B"][i]))
+plt.subplot(2, 2, 4)
+plt.imshow(untransform(outs["fake_A"][i]))
+plt.show()
+
+# %%
+
+plt.imshow(untransform(outs["fake_B"][i]))
 
 
+# %%
+
+data = next(dataset)
+
+# %%
+
+i = 0
+fig = plt.figure(figsize=(10, 10))
+plt.subplot(2, 2, 1)
+plt.imshow(data["A"][i])
+plt.subplot(2, 2, 2)
+plt.imshow(data["B"][i])
+plt.show()
 
