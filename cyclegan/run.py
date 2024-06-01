@@ -20,10 +20,22 @@ from embodied.nn import sg
 from .data import TwoDomainDataset
 from .trainer import CycleGAN
 
+# def fetch_async(value):
+#   with jax._src.config.explicit_device_get_scope():
+#     [x.copy_to_host_async() for x in jax.tree_util.tree_leaves(value)]
+#   return value
+
+# def take_mets(mets):
+#   mets = jax.tree.map(lambda x: x.__array__(), mets)
+#   mets = {k: v[0] for k, v in mets.items()}
+#   mets = jax.tree.map(
+#     lambda x: np.float32(x) if x.dtype == jnp.bfloat16 else x, mets)
+#   return mets
+
 class Params:
-  def __init__(self, params, devices):
+  def __init__(self, params, mirrored):
     self._params = params
-    self._devices = devices
+    self._mirrored = mirrored
     self.lock = threading.Lock()
 
   @embodied.timer.section('model_save')
@@ -34,10 +46,9 @@ class Params:
   @embodied.timer.section('model_load')
   def load(self, state):
     with self.lock:
-      chex.assert_trees_all_equal_shapes(self.params, state)
-      jax.tree.map(lambda x: x.delete(), self.params)
-      jax.tree.map(lambda x: x.delete(), self.policy_params)
-      self._params = jax.device_put(state, self._devices)
+      chex.assert_trees_all_equal_shapes(self._params, state)
+      jax.tree.map(lambda x: x.delete(), self._params)
+      self._params = jax.device_put(state, self._mirrored)
 
 def make_trainer(config) -> CycleGAN:
   return CycleGAN(config, name="cgan")
@@ -115,6 +126,7 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
   train_devices = [available[i] for i in config.jax.train_devices]
   train_mesh = jax.sharding.Mesh(train_devices, 'i')
   train_sharded = jax.sharding.NamedSharding(train_mesh, jax.sharding.PartitionSpec('i'))
+  train_mirrored = jax.sharding.NamedSharding(train_mesh, jax.sharding.PartitionSpec())
   print('Train devices: ', ', '.join([str(x) for x in train_devices]))
 
 
@@ -127,7 +139,7 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
 
   # setup model and parameters
   params = nj.init(trainer.train)({}, next(dataset), seed=next_seed(train_sharded))
-  params_handler = Params(params, train_sharded)
+  params_handler = Params(params, train_mirrored)
 
   # Load or save checkpoint
   checkpoint = embodied.Checkpoint(pathlib.Path(config.logdir) / 'checkpoint.ckpt')
@@ -153,7 +165,8 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
     # Record fps
     train_fps.step(config.batch_size)
     # aggregate metrics
-    trainstats.add(mets, prefix='train')
+    # trainstats.add(take_mets(fetch_async(mets)), prefix='train')
+    trainstats.add(jax.device_get(mets), prefix='train')
     # increase step
     step.increment()
     # log if needed
