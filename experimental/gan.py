@@ -15,7 +15,6 @@ from functools import partial as bind
 import embodied
 from embodied.nn import ninjax as nj
 from embodied import nn
-from embodied.nn.cnn import ResidualBlock
 from embodied.nn import sg
 
 
@@ -26,6 +25,7 @@ class Generator(nj.Module):
   stage: int = 2
 
   def __init__(self, **kw) -> None:
+    # NOTE the number of hidden is capped at 256
     self._kw = kw
 
   def __call__(self, inputs: jax.Array):
@@ -36,15 +36,15 @@ class Generator(nj.Module):
     # encoding
     _hidden = self.hidden * 2
     for s in range(self.stage):
-      x = self.get(f"ds{s}", nn.Conv2D, _hidden, 3, stride=2, pad='same', **self._kw)(x)
+      x = self.get(f"ds{s}", nn.Conv2D, np.minimum(_hidden, 256), 3, stride=2, pad='same', **self._kw)(x)
       _hidden *= 2
     # residual blocks
     for b in range(self.block):
-      x = self.get(f"b{b}", ResidualBlock)(x)
+      x = self.get(f"b{b}", nn.ResidualBlock)(x)
     # upsampling, decoding
     _hidden //= 2
     for s in range(self.stage):
-      x = self.get(f"us{s}", nn.Conv2D, _hidden, 3, stride=2, transp=True, pad='same', **self._kw)(x)
+      x = self.get(f"us{s}", nn.Conv2D, np.minimum(_hidden, 256), 3, stride=2, transp=True, pad='same', **self._kw)(x)
     # conv out
     # Initial convolution layers
     kw = {**self._kw, 'act': 'tanh', 'norm': 'none'}
@@ -84,6 +84,7 @@ class Discriminator(nj.Module):
   norm: str = 'instance'
 
   def __init__(self, **kw) -> None:
+    # NOTE: the number of hidden is capped at 512
     self._kw = kw
     unused_keys = ["act", "pad", "stride", "transp", "hidden", "norm"]
     for uk in unused_keys:
@@ -103,7 +104,7 @@ class Discriminator(nj.Module):
     # downblock
     _hidden = self.hidden * 2
     for s in range(self.stage - 1):
-      x = self.get(f"s{s}", nn.Conv2D, _hidden, 3, pad='same', stride=2,
+      x = self.get(f"s{s}", nn.Conv2D, np.minimum(_hidden, 512), 3, pad='same', stride=2,
         norm=self.norm, act=self.act, **self._kw)(x)
       _hidden *= 2
     # out
@@ -195,7 +196,7 @@ def test_two_domain_dataset():
 
 class CycleGAN(nj.Module):
   def __init__(self, config: embodied.Config) -> None:
-    self.G_AB = Generator(name="G_AB")
+    self.G_AB = Generator(**config.generator, name="G_AB")
     self.G_BA = Generator(**config.generator, name="G_BA")
     self.D_A = Discriminator(**config.discriminator, name="D_A")
     self.D_B = Discriminator(**config.discriminator, name="D_B")
@@ -268,15 +269,15 @@ class CycleGAN(nj.Module):
 config = embodied.Config(
   seed=42,
   generator=dict(
-    block = 2,
-    hidden = 8,
+    block = 3,
+    hidden = 32,
     stage = 5,
     act = 'relu',
     norm = 'instance'
   ),
   discriminator=dict(
     stage = 5,
-    hidden = 8,
+    hidden = 32,
     act = 'leaky_relu',
     norm = 'instance'
   ),
@@ -286,7 +287,7 @@ config = embodied.Config(
   image_size = [256, 256],
   domain_A = "../data/monet_jpg",
   domain_B = "../data/photo_jpg",
-  batch_size = 4
+  batch_size = 16
 )
 np.random.seed(config.seed)
 trainer = CycleGAN(config, name="cgan")
@@ -300,7 +301,7 @@ losses = []
 
 # %%
 
-for i in range(1000):
+for i in range(2000):
   params, (outs, mets) = train(params, next(dataset), seed=np.random.randint(0, 2**16))
   loss = mets['opt_loss']
   losses.append(loss)
