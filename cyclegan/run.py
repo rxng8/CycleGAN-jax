@@ -1,3 +1,11 @@
+"""
+File: run.py
+Author: Viet Nguyen
+Date: 2024-06-01
+
+Description: Runing Lo(ma)gic
+"""
+
 import sys, pathlib
 import threading
 import numpy as np

@@ -1,4 +1,10 @@
+"""
+File: nets.py
+Author: Viet Nguyen
+Date: 2024-06-01
 
+Description: Cycle GAN components
+"""
 
 import numpy as np
 import jax
@@ -10,9 +16,6 @@ import embodied
 from embodied.nn import ninjax as nj
 from embodied import nn
 from embodied.nn import sg
-
-
-
 
 
 class Generator(nj.Module):

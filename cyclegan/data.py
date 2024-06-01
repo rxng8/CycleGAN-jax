@@ -1,3 +1,10 @@
+"""
+File: data.py
+Author: Viet Nguyen
+Date: 2024-06-01
+
+Description: Data handling
+"""
 
 import sys, pathlib
 import numpy as np

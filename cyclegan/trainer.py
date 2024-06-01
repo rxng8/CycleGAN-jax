@@ -1,3 +1,11 @@
+"""
+File: trainer.py
+Author: Viet Nguyen
+Date: 2024-06-01
+
+Description: Trainer of CycleGAN model
+"""
+
 
 from ruamel import yaml
 import numpy as np
