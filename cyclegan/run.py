@@ -1,0 +1,171 @@
+import sys, pathlib
+import threading
+import numpy as np
+import chex
+import jax
+import jax.numpy as jnp
+import os
+from PIL import Image
+import cv2
+import matplotlib.pyplot as plt
+from ruamel import yaml
+
+from functools import partial as bind
+
+import embodied
+from embodied.nn import ninjax as nj
+from embodied import nn
+from embodied.nn import sg
+
+from .data import TwoDomainDataset
+from .trainer import CycleGAN
+
+class Params:
+  def __init__(self, params, devices):
+    self._params = params
+    self._devices = devices
+    self.lock = threading.Lock()
+
+  @embodied.timer.section('model_save')
+  def save(self):
+    with self.lock:
+      return jax.device_get(self._params)
+
+  @embodied.timer.section('model_load')
+  def load(self, state):
+    with self.lock:
+      chex.assert_trees_all_equal_shapes(self.params, state)
+      jax.tree.map(lambda x: x.delete(), self.params)
+      jax.tree.map(lambda x: x.delete(), self.policy_params)
+      self._params = jax.device_put(state, self._devices)
+
+def make_trainer(config) -> CycleGAN:
+  return CycleGAN(config, name="cgan")
+
+def make_dataloader(config) -> TwoDomainDataset:
+  dataloader = TwoDomainDataset(config.domain_A, config.domain_B, config.image_size, config.batch_size)
+  return dataloader
+
+def setup_jax(jaxcfg):
+  try:
+    import tensorflow as tf
+    tf.config.set_visible_devices([], 'GPU')
+    tf.config.set_visible_devices([], 'TPU')
+  except Exception as e:
+    print('Could not disable TensorFlow devices:', e)
+  if not jaxcfg.prealloc:
+    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+  xla_flags = []
+  if jaxcfg.logical_cpus:
+    count = jaxcfg.logical_cpus
+    xla_flags.append(f'--xla_force_host_platform_device_count={count}')
+  if jaxcfg.nvidia_flags:
+    xla_flags.append('--xla_gpu_enable_latency_hiding_scheduler=true')
+    xla_flags.append('--xla_gpu_enable_async_all_gather=true')
+    xla_flags.append('--xla_gpu_enable_async_reduce_scatter=true')
+    xla_flags.append('--xla_gpu_enable_triton_gemm=false')
+    os.environ['CUDA_DEVICE_MAX_CONNECTIONS'] = '1'
+    os.environ['NCCL_IB_SL'] = '1'
+    os.environ['NCCL_NVLS_ENABLE'] = '0'
+    os.environ['CUDA_MODULE_LOADING'] = 'EAGER'
+  if xla_flags:
+    os.environ['XLA_FLAGS'] = ' '.join(xla_flags)
+  jax.config.update('jax_platform_name', jaxcfg.platform)
+  jax.config.update('jax_disable_jit', not jaxcfg.jit)
+  if jaxcfg.transfer_guard:
+    jax.config.update('jax_transfer_guard', 'disallow')
+  if jaxcfg.platform == 'cpu':
+    jax.config.update('jax_disable_most_optimizations', jaxcfg.debug)
+  embodied.nn.COMPUTE_DTYPE = getattr(jnp, jaxcfg.compute_dtype)
+  print(f"COMPUTE_DTYPE set to {embodied.nn.COMPUTE_DTYPE}")
+  embodied.nn.PARAM_DTYPE = getattr(jnp, jaxcfg.param_dtype)
+  print(f"PARAM_DTYPE set to {embodied.nn.PARAM_DTYPE}")
+
+
+def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logger: callable, config: embodied.Config):
+  print('Logdir', config.logdir)
+
+  RNG = np.random.default_rng(config.seed)
+  def next_seed(sharding):
+    shape = [2 * x for x in sharding.mesh.devices.shape]
+    seeds = RNG.integers(0, np.iinfo(np.uint32).max, shape, np.uint32)
+    return jax.device_put(seeds, sharding)
+
+  # Making our components
+  trainer: CycleGAN = make_trainer()
+  dataloader: TwoDomainDataset = make_dataloader()
+  logger = make_logger()
+
+  # Keep track/recoder of statistics
+  step: embodied.Counter = logger.step
+  usage = embodied.Usage(**config.run.usage)
+  trainstats = embodied.Agg()
+  train_fps = embodied.FPS()
+  should_log = embodied.when.Clock(config.run.log_every)
+  should_save = embodied.when.Clock(config.run.save_every)
+  # should_eval = embodied.when.Clock(config.run.eval_every)
+
+  # Setup jax engine, transfer guard, and sharding for parallel training
+  setup_jax(config.jax)
+  available = jax.devices(config.jax.platform)
+  embodied.print(f'JAX devices ({jax.local_device_count()}):', available)
+  if config.jax.assert_num_devices > 0:
+    assert len(available) == config.jax.assert_num_devices, (
+        available, len(available), config.jax.assert_num_devices)
+  train_devices = [available[i] for i in config.jax.train_devices]
+  train_mesh = jax.sharding.Mesh(train_devices, 'i')
+  train_sharded = jax.sharding.NamedSharding(train_mesh, jax.sharding.PartitionSpec('i'))
+  print('Train devices: ', ', '.join([str(x) for x in train_devices]))
+
+
+  # setup dataset and transform function
+  def transform(data):
+    return jax.device_put(data, train_sharded)
+  dataset = iter(embodied.Prefetch(dataloader.dataset, transform, amount=2))
+
+  next(dataset)
+
+  # setup model and parameters
+  params = nj.init(trainer.train)({}, next(dataset), seed=next_seed(train_sharded))
+  params_handler = Params(params, train_sharded)
+
+  # Load or save checkpoint
+  checkpoint = embodied.Checkpoint(pathlib.Path(config.logdir) / 'checkpoint.ckpt')
+  checkpoint.step = step
+  checkpoint.params_handler = params_handler
+  if config.run.from_checkpoint:
+    checkpoint.load(config.run.from_checkpoint)
+  checkpoint.load_or_save()
+  should_save(step)  # Register that we just saved.
+  # set the loaded (if necessary) params from the params handler to the param again
+  params = params_handler._params
+
+  # setup transformation of model training
+  train = jax.jit(nj.pure(trainer.train))
+
+  # Actual training loop
+  while step < config.run.steps:
+    # load next batch
+    with embodied.timer.section('dataset_next'):
+      batch = next(dataset)
+    # Train one step
+    params, (outs, mets) = train(params, batch, seed=next_seed(train_sharded))
+    # Record fps
+    train_fps.step(config.batch_size)
+    # aggregate metrics
+    trainstats.add(mets, prefix='train')
+    # increase step
+    step.increment()
+    # log if needed
+    if should_log(step):
+      logger.add(trainstats.result())
+      logger.add(embodied.timer.stats(), prefix='timer')
+      logger.add(usage.stats(), prefix='usage')
+      logger.add({'fps/train': train_fps.result()})
+      logger.write()
+
+    if should_save(step):
+      checkpoint.save()
+
+  # Finally, close logger
+  logger.close()

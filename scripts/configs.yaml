@@ -1,0 +1,59 @@
+defaults:
+
+  # Experiment Setup
+  seed: 42
+  logroot: logs
+  expname: test
+  logdir: ""
+  filter: '.*'
+
+  # Jax Configuration
+  jax:
+    platform: gpu
+    jit: True
+    compute_dtype: bfloat16
+    param_dtype: float32
+    prealloc: True
+    checks: False
+    logical_cpus: 0
+    debug: False
+    infer_devices: [0]
+    train_devices: [0]
+    sync_every: 1
+    profiler: False
+    transfer_guard: True
+    assert_num_devices: -1
+    fetch_policy_carry: False
+    nvidia_flags: False
+    xla_dump: False
+
+  # Experiment Running Mastermind Config
+  run:
+    script: train
+    steps: 2 # train steps
+    duration: 0
+    log_every: 120
+    save_every: 900
+    eval_every: 180
+    log_zeros: True
+    from_checkpoint: ''
+    usage: {psutil: True, nvsmi: True, gputil: False, malloc: False, gc: False}
+    timer: True
+
+  # Models, Training, and Hyperparameters
+  generator: {block: 2, hidden: 16, stage: 5, act: relu, norm: instance}
+  discriminator: {stage: 5, hidden: 16, act: leaky_relu, norm: instance}
+  opt: {lr: 3e-4}
+  image_size: [256, 256]
+  domain_A: "data/null"
+  domain_B: "data/null"
+  batch_size: 4
+
+
+tiny:
+  generator: {block: 1, hidden: 8}
+  discriminator: {hidden: 8}
+
+m2p:
+  domain_A: "data/monet_jpg"
+  domain_B: "data/photo_jpg"
