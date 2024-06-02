@@ -40,7 +40,7 @@ defaults:
     timer: True
 
   # Models, Training, and Hyperparameters
-  generator: {block: 2, hidden: 16, stage: 5, act: relu, norm: instance}
+  generator: {block: 2, hidden: 64, stage: 2, act: relu, norm: instance}
   discriminator: {stage: 5, hidden: 16, act: leaky_relu, norm: instance}
   opt: {lr: 3e-4}
   image_size: [256, 256]
@@ -50,17 +50,17 @@ defaults:
 
 
 tiny:
-  generator: {block: 1, hidden: 8}
-  discriminator: {hidden: 8}
+  generator: {block: 1, hidden: 32}
+  discriminator: {hidden: 32}
 
 small:
-  generator: {block: 2, hidden: 16}
-  discriminator: {hidden: 16}
+  generator: {block: 2, hidden: 64}
+  discriminator: {hidden: 64}
   batch_size: 6
 
 large:
-  generator: {block: 3, hidden: 32}
-  discriminator: {hidden: 32}
+  generator: {block: 3, hidden: 128}
+  discriminator: {hidden: 128}
   batch_size: 8
 
 m2p:

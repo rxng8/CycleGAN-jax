@@ -25,18 +25,19 @@ class Generator(nj.Module):
   stage: int = 2
 
   def __init__(self, **kw) -> None:
-    # NOTE the number of hidden is capped at 256
+    # NOTE the number of hidden is capped at 512
     self._kw = kw
 
   def __call__(self, inputs: jax.Array):
     # inputs: (B, H, W, C)
     B, H, W, C = inputs.shape
     # Initial convolution layers
-    x = self.get("in", nn.Conv2D, self.hidden, 3, stride=1, pad='same', **self._kw)(inputs)
+    x = nn.reflection_pad_2d(inputs, 3)
+    x = self.get("in", nn.Conv2D, self.hidden, 7, stride=1, pad='valid', **self._kw)(x)
     # encoding
     _hidden = self.hidden * 2
     for s in range(self.stage):
-      x = self.get(f"ds{s}", nn.Conv2D, np.minimum(_hidden, 256), 3, stride=2, pad='same', **self._kw)(x)
+      x = self.get(f"ds{s}", nn.Conv2D, np.minimum(_hidden, 512), 3, stride=2, pad='same', **self._kw)(x)
       _hidden *= 2
     # residual blocks
     for b in range(self.block):
@@ -44,11 +45,12 @@ class Generator(nj.Module):
     # upsampling, decoding
     _hidden //= 2
     for s in range(self.stage):
-      x = self.get(f"us{s}", nn.Conv2D, np.minimum(_hidden, 256), 3, stride=2, transp=True, pad='same', **self._kw)(x)
+      x = self.get(f"us{s}", nn.Conv2D, np.minimum(_hidden, 512), 3, stride=2, transp=True, pad='same', **self._kw)(x)
     # conv out
     # Initial convolution layers
     kw = {**self._kw, 'act': 'tanh', 'norm': 'none'}
-    x = self.get("out", nn.Conv2D, C, 3, stride=1, pad='same', **kw)(x)
+    x = nn.reflection_pad_2d(x, 3)
+    x = self.get("out", nn.Conv2D, C, 7, stride=1, pad='valid', **kw)(x)
     # return
     return x
 
@@ -85,7 +87,7 @@ class Discriminator(nj.Module):
         norm=self.norm, act=self.act, **self._kw)(x)
       _hidden *= 2
     # out
-    x = self.get(f"out", nn.Conv2D, 1, 3, pad='same', stride=1, act='none')(x)
+    x = self.get(f"out", nn.Conv2D, 1, 3, pad='same', stride=1, act='none')(x) # NOTE: TODO: do zeropadding for only the bottom right
     return x
 
 
