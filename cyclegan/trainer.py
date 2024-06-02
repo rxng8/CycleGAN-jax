@@ -105,6 +105,6 @@ class CycleGAN(nj.Module):
 
   def report(self, data):
     _, (outs, mets) = self.loss(self.preprocess(data))
-    mets.update({f"image/{k}": image_grid(v) for k, v in outs.items()})
+    mets.update({f"image/{k}": image_grid(v / 2 + 0.5) for k, v in outs.items()})
     return mets
 
