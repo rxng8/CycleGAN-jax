@@ -40,7 +40,7 @@ from .trainer import CycleGAN
 #     lambda x: np.float32(x) if x.dtype == jnp.bfloat16 else x, mets)
 #   return mets
 
-class Params:
+class ParamsHandler:
   def __init__(self, params, mirrored):
     self._params = params
     self._mirrored = mirrored
@@ -147,7 +147,8 @@ def train_eval(make_trainer: callable, make_dataloader_train: callable, make_dat
 
   # setup model and parameters
   params = nj.init(trainer.train)({}, next(dataset_train), seed=next_seed(train_sharded))
-  params_handler = Params(params, train_mirrored)
+  params = jax.device_put(params, train_mirrored)
+  params_handler = ParamsHandler(params, train_mirrored)
 
   # Load or save checkpoint
   checkpoint = embodied.Checkpoint(pathlib.Path(config.logdir) / 'checkpoint.ckpt')
@@ -157,8 +158,6 @@ def train_eval(make_trainer: callable, make_dataloader_train: callable, make_dat
     checkpoint.load(config.run.from_checkpoint)
   checkpoint.load_or_save()
   should_save(step)  # Register that we just saved.
-  # set the loaded (if necessary) params from the params handler to the param again
-  params = params_handler._params
 
   # setup transformation of model training
   train = jax.jit(nj.pure(trainer.train))
@@ -170,7 +169,7 @@ def train_eval(make_trainer: callable, make_dataloader_train: callable, make_dat
     with embodied.timer.section('dataset_next'):
       batch = next(dataset_train)
     # Train one step
-    params, (outs, mets) = train(params, batch, seed=next_seed(train_sharded))
+    params_handler._params, (outs, mets) = train(params_handler._params, batch, seed=next_seed(train_sharded))
     # Record fps
     train_fps.step(config.batch_size)
     # aggregate metrics
@@ -181,7 +180,7 @@ def train_eval(make_trainer: callable, make_dataloader_train: callable, make_dat
 
     # if eval is needed
     if should_eval(step):
-      _, mets = report(params, next(dataset_eval), seed=next_seed(train_sharded))
+      _, mets = report(params_handler._params, next(dataset_eval), seed=next_seed(train_sharded))
       logger.add(jax.device_get(mets), prefix='report')
 
     # log if needed
