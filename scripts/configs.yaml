@@ -29,7 +29,7 @@ defaults:
   # Experiment Running Mastermind Config
   run:
     script: train
-    steps: 3000 # train steps
+    steps: 5000 # train steps
     duration: 0
     log_every: 120
     save_every: 900
@@ -52,6 +52,16 @@ defaults:
 tiny:
   generator: {block: 1, hidden: 8}
   discriminator: {hidden: 8}
+
+small:
+  generator: {block: 2, hidden: 16}
+  discriminator: {hidden: 16}
+  batch_size: 6
+
+large:
+  generator: {block: 3, hidden: 32}
+  discriminator: {hidden: 32}
+  batch_size: 8
 
 m2p:
   domain_A: "data/monet_jpg"
