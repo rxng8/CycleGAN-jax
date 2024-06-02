@@ -56,12 +56,12 @@ tiny:
 small:
   generator: {block: 4, hidden: 64}
   discriminator: {hidden: 64}
-  batch_size: 6
+  batch_size: 4
 
 large:
   generator: {block: 5, hidden: 128}
   discriminator: {hidden: 128}
-  batch_size: 8
+  batch_size: 4
 
 m2p:
   domain_A: "data/monet_jpg"
