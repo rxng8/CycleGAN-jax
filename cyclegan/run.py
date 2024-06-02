@@ -101,7 +101,7 @@ def setup_jax(jaxcfg):
   print(f"PARAM_DTYPE set to {embodied.nn.PARAM_DTYPE}")
 
 
-def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logger: callable, config: embodied.Config):
+def train_eval(make_trainer: callable, make_dataloader_train: callable, make_dataloader_eval: callable, make_logger: callable, config: embodied.Config):
   print('Logdir', config.logdir)
 
   RNG = np.random.default_rng(config.seed)
@@ -112,7 +112,8 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
 
   # Making our components
   trainer: CycleGAN = make_trainer()
-  dataloader: TwoDomainDataset = make_dataloader()
+  dataloader_train: TwoDomainDataset = make_dataloader_train()
+  dataloader_eval: TwoDomainDataset = make_dataloader_eval()
   logger = make_logger()
 
   # Keep track/recoder of statistics
@@ -122,7 +123,7 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
   train_fps = embodied.FPS()
   should_log = embodied.when.Clock(config.run.log_every)
   should_save = embodied.when.Clock(config.run.save_every)
-  # should_eval = embodied.when.Clock(config.run.eval_every)
+  should_eval = embodied.when.Clock(config.run.eval_every)
 
   # Setup jax engine, transfer guard, and sharding for parallel training
   setup_jax(config.jax)
@@ -141,12 +142,11 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
   # setup dataset and transform function
   def transform(data):
     return jax.device_put(data, train_sharded)
-  dataset = iter(embodied.Prefetch(dataloader.dataset, transform, amount=2))
-
-  next(dataset)
+  dataset_train = iter(embodied.Prefetch(dataloader_train.dataset, transform, amount=2))
+  dataset_eval = iter(embodied.Prefetch(dataloader_eval.dataset, transform, amount=2))
 
   # setup model and parameters
-  params = nj.init(trainer.train)({}, next(dataset), seed=next_seed(train_sharded))
+  params = nj.init(trainer.train)({}, next(dataset_train), seed=next_seed(train_sharded))
   params_handler = Params(params, train_mirrored)
 
   # Load or save checkpoint
@@ -162,12 +162,13 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
 
   # setup transformation of model training
   train = jax.jit(nj.pure(trainer.train))
+  report = jax.jit(nj.pure(trainer.report))
 
   # Actual training loop
   while step < config.run.steps:
     # load next batch
     with embodied.timer.section('dataset_next'):
-      batch = next(dataset)
+      batch = next(dataset_train)
     # Train one step
     params, (outs, mets) = train(params, batch, seed=next_seed(train_sharded))
     # Record fps
@@ -177,6 +178,12 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
     trainstats.add(jax.device_get(mets), prefix='train')
     # increase step
     step.increment()
+
+    # if eval is needed
+    if should_eval(step):
+      _, mets = report(params, next(dataset_eval), seed=next_seed(train_sharded))
+      logger.add(jax.device_get(mets), prefix='report')
+
     # log if needed
     if should_log(step):
       logger.add(trainstats.result())
@@ -188,5 +195,13 @@ def train_CycleGAN(make_trainer: callable, make_dataloader: callable, make_logge
     if should_save(step):
       checkpoint.save()
 
+  # Save the last step
+  checkpoint.save()
+
   # Finally, close logger
   logger.close()
+
+
+def train_eval_then_do_a_CARTWHEEL(make_trainer: callable, make_dataloader: callable, make_logger: callable, config: embodied.Config):
+  raise NotImplementedError()
+

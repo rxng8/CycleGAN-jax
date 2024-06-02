@@ -22,6 +22,15 @@ from embodied.nn import sg
 from .nets import Generator, Discriminator
 
 
+def image_grid(batch: jax.Array):
+  # batch: B, H, W, C
+  _batch = batch[:4]
+  _, H, W, C = _batch.shape
+  _batch = _batch.reshape((2, 2, H, W, C))
+  _batch = _batch.transpose([0, 2, 1, 3, 4])
+  _batch = _batch.reshape((2*H, 2, W, C)).reshape((2*H, 2*W, C))
+  return _batch
+
 class CycleGAN(nj.Module):
 
   def __init__(self, config: embodied.Config) -> None:
@@ -93,3 +102,9 @@ class CycleGAN(nj.Module):
     for k, v in losses.items():
       mets.update(nn.tensorstats(v, prefix=k))
     return mets
+
+  def report(self, data):
+    _, (outs, mets) = self.loss(self.preprocess(data))
+    mets.update({f"image/{k}": image_grid(v) for k, v in outs.items()})
+    return mets
+

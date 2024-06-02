@@ -17,7 +17,6 @@ defaults:
     checks: False
     logical_cpus: 0
     debug: False
-    infer_devices: [0]
     train_devices: [0]
     sync_every: 1
     profiler: False

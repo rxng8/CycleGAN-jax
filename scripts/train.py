@@ -28,7 +28,7 @@ sys.path.append(str(directory.parent))
 
 import embodied
 
-from cyclegan import train_CycleGAN, make_trainer, make_dataloader
+from cyclegan import train_eval, make_trainer, make_dataloader
 
 def main(argv):
   config = embodied.api.load_config(pathlib.Path(__file__).parent / "configs.yaml", argv)
@@ -36,11 +36,12 @@ def main(argv):
   print(f"logdir: {embodied.Path(config.logdir)}")
 
   if config.run.script == "train":
-    train_CycleGAN(
-      bind(make_trainer, config),
-      bind(make_dataloader, config),
-      bind(embodied.api.make_logger, config),
-      config
+    train_eval(
+      make_trainer=bind(make_trainer, config),
+      make_dataloader_train=bind(make_dataloader, config),
+      make_dataloader_eval=bind(make_dataloader, config),
+      make_logger=bind(embodied.api.make_logger, config),
+      config=config
     )
   else:
     raise NotImplementedError("")
