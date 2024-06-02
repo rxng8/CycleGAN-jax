@@ -50,16 +50,16 @@ defaults:
 
 
 tiny:
-  generator: {block: 1, hidden: 32}
+  generator: {block: 3, hidden: 32}
   discriminator: {hidden: 32}
 
 small:
-  generator: {block: 2, hidden: 64}
+  generator: {block: 4, hidden: 64}
   discriminator: {hidden: 64}
   batch_size: 6
 
 large:
-  generator: {block: 3, hidden: 128}
+  generator: {block: 5, hidden: 128}
   discriminator: {hidden: 128}
   batch_size: 8
 
