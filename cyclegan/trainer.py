@@ -69,25 +69,34 @@ class CycleGAN(nj.Module):
 
     losses = {}
     # identity loss
-    losses["id_A"] = jnp.abs(self.G_BA(real_A) - real_A) # If put A into G:B->A. Of course it still return A
-    losses["id_B"] = jnp.abs(self.G_AB(real_B) - real_B) # If put B into G:A->B. Of course it still return B
+    id_A = jnp.abs(self.G_BA(real_A) - real_A) # If put A into G:B->A. Of course it still return A
+    id_B = jnp.abs(self.G_AB(real_B) - real_B) # If put B into G:A->B. Of course it still return B
+    losses["id"] = (id_A + id_B) / 2
+
     # GAN loss
     fake_B = self.G_AB(real_A)
     fake_A = self.G_BA(real_B)
-    losses["gan_AB"] = (self.D_B(fake_B) - valid)**2 # trick discriminator B
-    losses["gan_BA"] = (self.D_A(fake_A) - valid)**2 # trick discriminator A
+    gan_AB = (self.D_B(fake_B) - valid)**2 # trick discriminator B
+    gan_BA = (self.D_A(fake_A) - valid)**2 # trick discriminator A
+    losses["gan"] = (gan_AB + gan_BA) / 2
+    
     # Cycle loss
     recov_A = self.G_BA(fake_B)
     recov_B = self.G_AB(fake_A)
-    losses["cycle_A"] = jnp.abs(real_A - recov_A)
-    losses["cycle_B"] = jnp.abs(real_B - recov_B)
-    # discriminator loss
-    losses["disc_real_A"] = (self.D_A(real_A) - valid)**2
-    losses["disc_fake_A"] = (self.D_A(sg(fake_A)) - fake)**2
-    losses["disc_real_B"] = (self.D_B(real_B) - valid)**2
-    losses["disc_fake_B"] = (self.D_B(sg(fake_B)) - fake)**2
+    cycle_A = jnp.abs(real_A - recov_A)
+    cycle_B = jnp.abs(real_B - recov_B)
+    losses["cycle"] = (cycle_A + cycle_B) / 2
 
-    model_loss = sum([x.mean() for x in losses.values()])
+    # discriminator loss
+    disc_real_A = (self.D_A(real_A) - valid)**2
+    disc_fake_A = (self.D_A(sg(fake_A)) - fake)**2
+    disc_real_B = (self.D_B(real_B) - valid)**2
+    disc_fake_B = (self.D_B(sg(fake_B)) - fake)**2
+    losses["disc"] = (disc_real_A + disc_real_B + disc_fake_A + disc_fake_B) / 4
+
+    # scaled and compute total losses
+    scaled = {k: self.config.loss_scales[k] * v for k, v in losses.items()}
+    model_loss = sum([x.mean() for x in scaled.values()])
     mets = self._metrics(data, losses)
     outs = {
       "real_A": real_A,
