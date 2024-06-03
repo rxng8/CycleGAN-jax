@@ -34,6 +34,7 @@ def image_grid(batch: jax.Array):
 class CycleGAN(nj.Module):
 
   def __init__(self, config: embodied.Config) -> None:
+    self.config = config
     self.G_AB = Generator(**config.generator, name="G_AB")
     self.G_BA = Generator(**config.generator, name="G_BA")
     self.D_A = Discriminator(**config.discriminator, name="D_A")
