@@ -106,7 +106,7 @@ class CycleGAN(nj.Module):
   def report(self, data):
     _, (outs, mets) = self.loss(self.preprocess(data))
     B = list(outs.values())[0].shape[0]
-    for i in max(len(B), 4):
+    for i in range(max(B, 4)):
       img = jnp.stack([outs["real_A"][i], outs["fake_B"][i], outs["real_B"][i], outs["fake_A"][i]], axis=0)
       mets.update({f"image/batch_{i}": image_grid(img / 2 + 0.5)})
     return mets
