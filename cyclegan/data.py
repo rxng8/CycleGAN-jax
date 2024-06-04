@@ -51,9 +51,9 @@ class TwoDomainDataset:
     iA = np.random.randint(0, self._len_A)
     iB = np.random.randint(0, self._len_B)
     img_A = np.asarray(Image.open(self.domain_A[iA]))
-    img_A = np.asarray(cv2.resize(img_A, (self.W, self.H))) if (self.W, self.H) == img_A.shape[:2] else img_A
+    img_A = np.asarray(cv2.resize(img_A, (self.W, self.H))) if (self.W, self.H) != img_A.shape[:2] else img_A
     img_B = np.asarray(Image.open(self.domain_B[iB]))
-    img_B = np.asarray(cv2.resize(img_B, (self.W, self.H))) if (self.W, self.H) == img_B.shape[:2] else img_B
+    img_B = np.asarray(cv2.resize(img_B, (self.W, self.H))) if (self.W, self.H) != img_B.shape[:2] else img_B
     return {"A": img_A, "B": img_B}
 
   def _sample(self):
